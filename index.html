@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="ur">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Frostbite Pals</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b1330">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+  :root{
+    --bg1:#0b1330;
+    --bg2:#1a2a5c;
+    --ice:#bdf3ff;
+    --pink:#ff8fce;
+    --gold:#ffd35c;
+    --text:#eef4ff;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{
+    margin:0;padding:0;width:100%;height:100%;
+    background:var(--bg1);
+    overflow:hidden;
+    font-family:'Segoe UI',system-ui,sans-serif;
+    color:var(--text);
+    touch-action:none;
+    user-select:none;
+  }
+  #wrap{ position:relative; width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; }
+  canvas{ display:block; background:linear-gradient(180deg,var(--bg2),var(--bg1) 80%); }
+  #hud{
+    position:absolute; top:0; left:0; width:100%;
+    display:flex; justify-content:space-between; padding:14px 20px;
+    pointer-events:none; font-variant-numeric:tabular-nums;
+  }
+  #hudLeft div{ margin-bottom:2px; }
+  #score{ font-size:22px; font-weight:700; color:var(--ice); text-shadow:0 0 12px rgba(189,243,255,0.5); }
+  #level, #lives{ font-size:13px; color:#a9b6e6; }
+  #overlay{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(11,19,48,0.92); backdrop-filter:blur(6px);
+    text-align:center; padding:24px;
+  }
+  #overlay h1{
+    font-size:clamp(30px,7vw,46px); margin:0 0 6px 0;
+    background:linear-gradient(90deg,var(--ice),var(--pink));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    letter-spacing:2px;
+  }
+  #overlay p.tag{ color:#a9b6e6; font-size:13px; margin:0 0 22px 0; letter-spacing:2px; text-transform:uppercase; }
+  #statBlock{ font-size:15px; margin-bottom:10px; }
+  #statBlock b{ color:var(--gold); }
+  #startBtn{
+    margin-top:18px; padding:15px 42px; font-size:17px; font-weight:700; letter-spacing:1px;
+    color:#0b1330; background:linear-gradient(90deg,var(--ice),#7fd6e8);
+    border:none; border-radius:999px; cursor:pointer;
+    box-shadow:0 0 26px rgba(189,243,255,0.35);
+  }
+  #startBtn:active{ transform:scale(0.95); }
+  #howto{ margin-top:22px; font-size:12px; color:#8a95c2; max-width:340px; line-height:1.6; }
+  #howto b{ color:var(--pink); }
+  .hidden{ display:none !important; }
+  #mobileControls{
+    position:absolute; bottom:16px; left:0; width:100%;
+    display:flex; justify-content:space-between; padding:0 18px;
+    pointer-events:none;
+  }
+  #mobileControls .btn{
+    pointer-events:auto;
+    width:64px;height:64px;border-radius:50%;
+    background:rgba(255,255,255,0.08);
+    border:1px solid rgba(255,255,255,0.18);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px; color:var(--text);
+  }
+  #mobileControls .left{ display:flex; gap:10px; }
+  footer{ position:absolute; bottom:4px; width:100%; text-align:center; font-size:9px; color:#3d4577; pointer-events:none; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+
+  <div id="hud">
+    <div id="hudLeft">
+      <div id="score">0</div>
+      <div id="level">Level 1</div>
+      <div id="lives">Lives: 3</div>
+    </div>
+  </div>
+
+  <div id="mobileControls">
+    <div class="left">
+      <div class="btn" id="btnLeft">◀</div>
+      <div class="btn" id="btnRight">▶</div>
+    </div>
+    <div class="left">
+      <div class="btn" id="btnFreeze">❄</div>
+      <div class="btn" id="btnJump">⬆</div>
+    </div>
+  </div>
+
+  <div id="overlay">
+    <h1>FROSTBITE PALS</h1>
+    <p class="tag">an original icy platformer</p>
+    <div id="statBlock"></div>
+    <button id="startBtn">Start Game</button>
+    <div id="howto">
+      <b>Move:</b> A/D or ◀▶ &nbsp; <b>Jump:</b> W / Space / ⬆ &nbsp; <b>Freeze breath:</b> J / ❄<br>
+      Freeze enemies into snowballs, then walk into the snowball to roll it and
+      crush the rest. Clear every enemy to open the exit gem and reach the next level.
+    </div>
+  </div>
+
+  <footer>FROSTBITE PALS — original characters &amp; code, free to use anywhere</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const levelEl = document.getElementById('level');
+const livesEl = document.getElementById('lives');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const statBlock = document.getElementById('statBlock');
+
+let W,H,DPR;
+function resize(){
+  DPR = Math.min(window.devicePixelRatio||1,2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W*DPR; canvas.height = H*DPR;
+  canvas.style.width = W+'px'; canvas.style.height = H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  buildLevel(currentLevel);
+}
+window.addEventListener('resize', resize);
+
+const GRAVITY = 0.55;
+const GROUND_FRICTION = 0.8;
+
+let running = false;
+let score = 0;
+let lives = 3;
+let currentLevel = 1;
+let platforms = [];
+let enemies = [];
+let projectiles = [];
+let particles = [];
+let gemActive = false;
+let gem = null;
+let player;
+
+function makePlayer(){
+  return {
+    x: W*0.15, y: H*0.5, w: 30, h: 36,
+    vx:0, vy:0, onGround:false, facing:1,
+    freezeCD:0, hurtTimer:0, alive:true
+  };
+}
+
+function buildLevel(lvl){
+  platforms = [];
+  const groundY = H-46;
+  platforms.push({x:0,y:groundY,w:W,h:46});
+  // procedurally place a few floating platforms, deterministic per level
+  const rows = 3 + Math.min(2, Math.floor(lvl/3));
+  let seed = lvl*17;
+  function rnd(){ seed = (seed*9301+49297)%233280; return seed/233280; }
+  for(let r=0;r<rows;r++){
+    const py = groundY - (r+1)*(H*0.16);
+    const count = 2 + Math.floor(rnd()*2);
+    for(let c=0;c<count;c++){
+      const pw = 120+rnd()*100;
+      const px = 40 + rnd()*(W-pw-80);
+      platforms.push({x:px, y:py, w:pw, h:18});
+    }
+  }
+}
+
+function spawnEnemies(lvl){
+  enemies = [];
+  const count = Math.min(3+lvl, 9);
+  for(let i=0;i<count;i++){
+    const plat = platforms[1 + (i % (platforms.length-1))] || platforms[0];
+    enemies.push({
+      x: plat.x + 20 + Math.random()*Math.max(10,plat.w-40),
+      y: plat.y - 30,
+      w:26, h:28,
+      vx: (Math.random()<0.5?-1:1) * (1+Math.random()*0.6),
+      vy:0,
+      state:'walk', // walk, frozen, rolling
+      freezeHits:0,
+      rollVx:0,
+      hue: 200 + Math.random()*140,
+      alive:true
+    });
+  }
+}
+
+function resetRun(){
+  score=0; lives=3; currentLevel=1;
+  scoreEl.textContent='0';
+  livesEl.textContent='Lives: 3';
+  levelEl.textContent='Level 1';
+  particles=[]; projectiles=[]; gemActive=false; gem=null;
+  buildLevel(currentLevel);
+  player = makePlayer();
+  spawnEnemies(currentLevel);
+}
+
+// ---------- input ----------
+const keys={left:false,right:false,up:false,freeze:false};
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='a'||k==='arrowleft') keys.left=true;
+  if(k==='d'||k==='arrowright') keys.right=true;
+  if(k==='w'||k===' '||k==='arrowup') keys.up=true;
+  if(k==='j') keys.freeze=true;
+  if(!running && k===' ') startGame();
+});
+window.addEventListener('keyup',e=>{
+  const k=e.key.toLowerCase();
+  if(k==='a'||k==='arrowleft') keys.left=false;
+  if(k==='d'||k==='arrowright') keys.right=false;
+  if(k==='w'||k===' '||k==='arrowup') keys.up=false;
+  if(k==='j') keys.freeze=false;
+});
+function bindHold(el, onDown, onUp){
+  el.addEventListener('pointerdown', e=>{e.preventDefault(); onDown();});
+  el.addEventListener('pointerup', e=>{e.preventDefault(); onUp();});
+  el.addEventListener('pointerleave', e=>{ onUp(); });
+}
+bindHold(document.getElementById('btnLeft'), ()=>keys.left=true, ()=>keys.left=false);
+bindHold(document.getElementById('btnRight'), ()=>keys.right=true, ()=>keys.right=false);
+bindHold(document.getElementById('btnJump'), ()=>keys.up=true, ()=>keys.up=false);
+bindHold(document.getElementById('btnFreeze'), ()=>keys.freeze=true, ()=>keys.freeze=false);
+
+// ---------- helpers ----------
+function rectsOverlap(a,b){
+  return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+function burst(x,y,hue,n){
+  for(let i=0;i<n;i++){
+    const a=Math.random()*Math.PI*2, sp=Math.random()*3+1;
+    particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,hue});
+  }
+}
+
+function applyPhysics(ent){
+  ent.vy += GRAVITY;
+  ent.x += ent.vx;
+  ent.y += ent.vy;
+  ent.onGround = false;
+  for(const p of platforms){
+    if(ent.x+ent.w > p.x && ent.x < p.x+p.w){
+      const feetPrev = ent.y+ent.h - ent.vy;
+      const feetNow = ent.y+ent.h;
+      if(feetPrev <= p.y && feetNow >= p.y && ent.vy>=0){
+        ent.y = p.y-ent.h;
+        ent.vy = 0;
+        ent.onGround = true;
+      }
+    }
+  }
+  if(ent.x<0){ ent.x=0; ent.vx=0; }
+  if(ent.x+ent.w>W){ ent.x=W-ent.w; ent.vx=0; }
+}
+
+// ---------- update ----------
+function updatePlayer(){
+  if(!player.alive) return;
+  const accel = 1.1, maxSpeed=4.4;
+  if(keys.left){ player.vx -= accel; player.facing=-1; }
+  if(keys.right){ player.vx += accel; player.facing=1; }
+  player.vx *= GROUND_FRICTION;
+  player.vx = Math.max(-maxSpeed, Math.min(maxSpeed, player.vx));
+  if(keys.up && player.onGround){ player.vy = -11.5; }
+
+  applyPhysics(player);
+
+  if(player.freezeCD>0) player.freezeCD--;
+  if(keys.freeze && player.freezeCD<=0){
+    projectiles.push({
+      x: player.x + (player.facing>0? player.w:0),
+      y: player.y+player.h*0.4,
+      vx: 7*player.facing, w:14,h:10, life:70
+    });
+    player.freezeCD = 18;
+  }
+
+  if(player.hurtTimer>0) player.hurtTimer--;
+
+  if(player.y > H+80){ killPlayer(); }
+}
+
+function killPlayer(){
+  if(!player.alive) return;
+  player.alive=false;
+  burst(player.x+player.w/2, player.y+player.h/2, 340, 26);
+  lives--;
+  livesEl.textContent = 'Lives: '+Math.max(0,lives);
+  if(lives<=0){
+    setTimeout(()=>endRun(false), 500);
+  } else {
+    setTimeout(()=>{
+      player = makePlayer();
+    }, 700);
+  }
+}
+
+function updateProjectiles(){
+  for(let i=projectiles.length-1;i>=0;i--){
+    const pr=projectiles[i];
+    pr.x += pr.vx; pr.life--;
+    if(pr.life<=0 || pr.x<-20 || pr.x>W+20){ projectiles.splice(i,1); continue; }
+    for(const en of enemies){
+      if(!en.alive || en.state!=='walk') continue;
+      const box={x:en.x,y:en.y,w:en.w,h:en.h};
+      if(rectsOverlap({x:pr.x,y:pr.y,w:pr.w,h:pr.h}, box)){
+        en.freezeHits++;
+        burst(en.x+en.w/2, en.y+en.h/2, 195, 8);
+        projectiles.splice(i,1);
+        if(en.freezeHits>=2){
+          en.state='frozen';
+          en.vx=0;
+        }
+        break;
+      }
+    }
+  }
+}
+
+function updateEnemies(){
+  let anyAlive=false;
+  for(const en of enemies){
+    if(!en.alive) continue;
+    anyAlive=true;
+
+    if(en.state==='walk'){
+      en.x += en.vx;
+      applyPhysics(en);
+      // turn around at platform edges or walls
+      const standingPlat = platforms.find(p=> en.x+en.w>p.x && en.x<p.x+p.w && Math.abs((en.y+en.h)-p.y)<2 );
+      if(standingPlat){
+        if(en.x <= standingPlat.x || en.x+en.w >= standingPlat.x+standingPlat.w){
+          en.vx *= -1;
+        }
+      }
+      if(en.x<=0||en.x+en.w>=W) en.vx*=-1;
+
+      if(en.alive && rectsOverlap(en, player) && player.alive && player.hurtTimer<=0){
+        killPlayer();
+        player.hurtTimer=60;
+      }
+    } else if(en.state==='frozen'){
+      applyPhysics({x:en.x,y:en.y,w:en.w,h:en.h,vy:0,vx:0,onGround:true}); // stays put, gravity settle
+      // player pushes into it -> rolling
+      if(rectsOverlap(en, player)){
+        const dir = (player.x+player.w/2) < (en.x+en.w/2) ? 1 : -1;
+        en.state='rolling';
+        en.rollVx = dir*7.5;
+        burst(en.x+en.w/2, en.y+en.h/2, 195, 10);
+      }
+    } else if(en.state==='rolling'){
+      en.x += en.rollVx;
+      applyPhysics(en);
+      if(en.x<=0||en.x+en.w>=W){ en.alive=false; killEnemy(en,true); continue; }
+      for(const other of enemies){
+        if(other===en || !other.alive) continue;
+        if(rectsOverlap(en,other)){
+          killEnemy(other,false);
+        }
+      }
+      if(rectsOverlap(en,player) && player.alive && player.hurtTimer<=0){
+        // rolling snowball is safe for player (it's their weapon) - no damage
+      }
+    }
+  }
+  enemies = enemies.filter(e=>e.alive);
+
+  if(!anyAlive && !gemActive){
+    gemActive = true;
+    gem = {x:W/2-14, y: -30, w:28,h:28, vy:0};
+  }
+  if(gemActive && gem){
+    gem.vy += GRAVITY*0.4;
+    gem.y += gem.vy;
+    const groundY = H-46;
+    if(gem.y+gem.h > groundY){ gem.y = groundY-gem.h; gem.vy=0; }
+    if(rectsOverlap(gem, player)){
+      score += 250;
+      scoreEl.textContent = Math.floor(score);
+      nextLevel();
+    }
+  }
+}
+
+function killEnemy(en, fromWall){
+  en.alive=false;
+  score += 100;
+  scoreEl.textContent = Math.floor(score);
+  burst(en.x+en.w/2, en.y+en.h/2, en.hue, 16);
+}
+
+function nextLevel(){
+  currentLevel++;
+  levelEl.textContent = 'Level '+currentLevel;
+  gemActive=false; gem=null; projectiles=[];
+  buildLevel(currentLevel);
+  spawnEnemies(currentLevel);
+  player = makePlayer();
+}
+
+function updateParticles(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx; p.y+=p.vy; p.vy+=0.1; p.vx*=0.96;
+    p.life-=0.025;
+    if(p.life<=0) particles.splice(i,1);
+  }
+}
+
+function update(){
+  updatePlayer();
+  updateProjectiles();
+  updateEnemies();
+  updateParticles();
+}
+
+// ---------- draw ----------
+function drawPlatforms(){
+  for(const p of platforms){
+    ctx.fillStyle = 'rgba(189,243,255,0.12)';
+    ctx.fillRect(p.x,p.y,p.w,p.h);
+    ctx.fillStyle = 'rgba(189,243,255,0.35)';
+    ctx.fillRect(p.x,p.y,p.w,4);
+  }
+}
+function drawPlayer(){
+  if(!player.alive) return;
+  ctx.save();
+  ctx.translate(player.x+player.w/2, player.y+player.h/2);
+  ctx.scale(player.facing,1);
+  const flicker = player.hurtTimer>0 && Math.floor(Date.now()/60)%2===0;
+  ctx.globalAlpha = flicker?0.4:1;
+  // body
+  ctx.fillStyle = '#ff8fce';
+  ctx.beginPath();
+  ctx.ellipse(0,4,player.w/2-2,player.h/2-2,0,0,Math.PI*2);
+  ctx.fill();
+  // belly
+  ctx.fillStyle = '#fff2f8';
+  ctx.beginPath();
+  ctx.ellipse(2,7,player.w/3-2,player.h/3-2,0,0,Math.PI*2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#0b1330';
+  ctx.beginPath();
+  ctx.arc(6,-2,2.6,0,Math.PI*2);
+  ctx.fill();
+  // little horn/tuft
+  ctx.fillStyle = '#ffd35c';
+  ctx.beginPath();
+  ctx.moveTo(-4,-player.h/2+2);
+  ctx.lineTo(2,-player.h/2-8);
+  ctx.lineTo(6,-player.h/2+2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+function drawEnemies(){
+  for(const en of enemies){
+    ctx.save();
+    ctx.translate(en.x+en.w/2, en.y+en.h/2);
+    if(en.state==='frozen' || en.state==='rolling'){
+      ctx.rotate(en.state==='rolling'? (Date.now()/80)%(Math.PI*2) : 0);
+      ctx.fillStyle = 'rgba(220,248,255,0.95)';
+      ctx.beginPath();
+      ctx.arc(0,0,en.w/2,0,Math.PI*2);
+      ctx.fill();
+      ctx.strokeStyle='rgba(150,220,255,0.9)';
+      ctx.lineWidth=2;
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = `hsl(${en.hue},70%,60%)`;
+      ctx.beginPath();
+      ctx.ellipse(0,0,en.w/2,en.h/2,0,0,Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = '#0b1330';
+      ctx.beginPath();
+      ctx.arc(-4,-4,2.2,0,Math.PI*2);
+      ctx.arc(4,-4,2.2,0,Math.PI*2);
+      ctx.fill();
+      if(en.freezeHits>0){
+        ctx.strokeStyle='rgba(220,248,255,0.8)';
+        ctx.lineWidth=3;
+        ctx.beginPath();
+        ctx.arc(0,0,en.w/2+3,0,Math.PI*2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+}
+function drawProjectiles(){
+  for(const pr of projectiles){
+    ctx.fillStyle='rgba(189,243,255,0.9)';
+    ctx.beginPath();
+    ctx.ellipse(pr.x+pr.w/2, pr.y+pr.h/2, pr.w/2, pr.h/2, 0,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+function drawGem(){
+  if(!gemActive||!gem) return;
+  ctx.save();
+  ctx.translate(gem.x+gem.w/2, gem.y+gem.h/2);
+  ctx.rotate(Date.now()/500);
+  ctx.fillStyle='#ffd35c';
+  ctx.beginPath();
+  ctx.moveTo(0,-14); ctx.lineTo(12,0); ctx.lineTo(0,14); ctx.lineTo(-12,0);
+  ctx.closePath();
+  ctx.shadowColor='#ffd35c'; ctx.shadowBlur=18;
+  ctx.fill();
+  ctx.restore();
+}
+function drawParticles(){
+  for(const p of particles){
+    ctx.beginPath();
+    ctx.fillStyle=`hsla(${p.hue},80%,75%,${p.life})`;
+    ctx.arc(p.x,p.y,3*p.life,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  drawPlatforms();
+  drawGem();
+  drawEnemies();
+  drawProjectiles();
+  drawPlayer();
+  drawParticles();
+}
+
+// ---------- loop ----------
+function loop(){
+  if(!running) return;
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function startGame(){
+  overlay.classList.add('hidden');
+  resetRun();
+  running = true;
+  requestAnimationFrame(loop);
+}
+function endRun(won){
+  running=false;
+  statBlock.innerHTML = `<div>Score: <b>${Math.floor(score)}</b></div><div>Reached Level: <b>${currentLevel}</b></div>`;
+  document.querySelector('#overlay h1').textContent = 'GAME OVER';
+  document.querySelector('#overlay .tag').textContent = 'the ice claims another challenger';
+  startBtn.textContent='Play Again';
+  overlay.classList.remove('hidden');
+}
+startBtn.addEventListener('click', startGame);
+
+resize();
+// idle background stars-ish shimmer while on menu
+function idle(){
+  if(running) return;
+  ctx.clearRect(0,0,W,H);
+  requestAnimationFrame(idle);
+}
+requestAnimationFrame(idle);
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+
+})();
+</script>
+</body>
+</html>
